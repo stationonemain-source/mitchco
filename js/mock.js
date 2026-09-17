@@ -4,6 +4,7 @@
 (function () {
   var PLATE_W = 3840, PLATE_H = 2160;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var portraitPhone = window.matchMedia('(max-width: 900px) and (orientation: portrait)');
   var params = new URLSearchParams(location.search);
 
   function $(s, r) { return (r || document).querySelector(s); }
@@ -80,6 +81,7 @@
     if (c1.bar) c1.bar.style.transform = 'scaleX(' + roof.toFixed(4) + ')';
     var active = roof <= 0.001 ? 0 : roof < 0.45 ? 1 : roof < 0.999 ? 2 : 3;
     c1.steps.forEach(function (s, i) { s.classList.toggle('is-on', i === active); });
+    c1.section.setAttribute('data-step', String(active));
     c1.marks.forEach(function (m) {
       var on = m.dataset.step === String(active);
       m.classList.toggle('is-on', on);
@@ -92,29 +94,46 @@
   if (c2.section) {
     c2.photo = $('#c2-photo');
     c2.edge = $('#c2-edge');
-    c2.dims = $('#c2-dims');
+    c2.dims = $$('#c2 .dims');
     c2.copyA = $('#c2-copy-a');
     c2.copyB = $('#c2-copy-b');
   }
   function driveC2() {
     if (!c2.section || c2.section.closest('[hidden]')) return;
     var p = pinProgress(c2.section);
-    var w = reduce ? (p > 0.5 ? 1 : 0) : ease(clamp((p - 0.12) / 0.7));
-    if (params.has('w')) w = parseFloat(params.get('w'));
+    var e = reduce ? (p > 0.5 ? 1 : 0) : ease(clamp((p - 0.12) / 0.7));
+    if (params.has('w')) e = parseFloat(params.get('w'));
+    // A phone shows only a slice of the plate. Sweep the edge across that slice so
+    // the screen changes for the whole scroll instead of sitting still for the first half.
+    var box = c2.photo.parentElement, bw = box.offsetWidth || 1;
+    var vl = Math.max(0, -box.offsetLeft / bw), vr = Math.min(1, (box.parentElement.clientWidth - box.offsetLeft) / bw);
+    var w = e >= 1 ? 1 : vl + e * (vr - vl);
     var pct = (w * 100).toFixed(2);
     c2.photo.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
     c2.edge.style.left = pct + '%';
     c2.edge.style.opacity = w > 0.005 && w < 0.995 ? '1' : '0';
-    // On a phone the plate is cropped, so the wipe only crosses the screen for part
-    // of its run. Normalise to the visible slice before handing the copy over.
-    var box = c2.photo.parentElement, bw = box.offsetWidth || 1;
-    var vl = Math.max(0, -box.offsetLeft / bw), vr = Math.min(1, (box.parentElement.clientWidth - box.offsetLeft) / bw);
     var wv = clamp((w - vl) / Math.max(0.01, vr - vl));
-    var narrow = window.innerWidth <= 900;
-    c2.dims.style.opacity = String(clamp(1 - wv * 1.6));
+    var narrow = portraitPhone.matches;
+    c2.dims.forEach(function (d) { d.style.opacity = String(clamp(1 - wv * 1.6)); });
     c2.section.style.setProperty('--wv', wv.toFixed(3));
     c2.copyA.classList.toggle('is-on', wv < (narrow ? 0.6 : 0.1));
+    var wasB = c2.copyB.classList.contains('is-on');
     c2.copyB.classList.toggle('is-on', wv > (narrow ? 0.85 : 0.34));
+    if (wasB !== c2.copyB.classList.contains('is-on')) hideCrowdedNotes();
+  }
+
+  function hideCrowdedNotes() {
+    if (!c2.section || c2.section.closest('[hidden]')) return;
+    var stage = c2.section.querySelector('.film-view').getBoundingClientRect();
+    var blockers = $$('#c2 .site-nav .brand, #c2 .site-nav .nav-phone, #c2 .site-nav .btn, #c2 .film-step.is-on h1, #c2 .film-step.is-on h2, #c2 .film-step.is-on p, #c2 .film-step.is-on .btn')
+      .map(function (el) { return el.getBoundingClientRect(); }).filter(function (r) { return r.width > 0; });
+    $$('#c2 .dims g').forEach(function (g) {
+      g.style.display = '';
+      var r = g.getBoundingClientRect(), pad = 6;
+      var off = r.left < stage.left + pad || r.right > stage.right - pad || r.top < stage.top + pad || r.bottom > stage.bottom - pad;
+      var hit = blockers.some(function (b) { return !(r.right < b.left - pad || r.left > b.right + pad || r.bottom < b.top - pad || r.top > b.bottom + pad); });
+      if (off || hit) g.style.display = 'none';
+    });
   }
 
   /* Before/after comparer: keyboard and pointer both move the same range input. */
@@ -169,6 +188,15 @@
     if (c3.storm) c3.storm.style.opacity = String(reduce ? 1 : 1 - ease(t));
   }
 
+  var callBar = $('.call-bar'), stormForm = $('.storm-form');
+  if (callBar && stormForm && 'IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      callBar.classList.toggle('is-on', !entries[0].isIntersecting);
+    }).observe(stormForm);
+  } else if (callBar) {
+    callBar.classList.add('is-on');
+  }
+
   /* ---------- loop ---------- */
   var queued = false;
   function tick() {
@@ -178,6 +206,7 @@
   function onScroll() { if (!queued) { queued = true; requestAnimationFrame(tick); } }
   function layout() {
     $$('.plate-box').forEach(function (b) { if (!b.closest('[hidden]')) fitBox(b); });
+    hideCrowdedNotes();
     if (c1.installer && c1.installer.ready && !c1.section.closest('[hidden]')) { c1.installer.resize(); c1.installer.drawn = false; c1.installer.draw(); }
   }
   window.addEventListener('scroll', onScroll, { passive: true });
