@@ -190,8 +190,10 @@
 
   var callBar = $('.call-bar'), stormForm = $('.storm-form');
   if (callBar && stormForm && 'IntersectionObserver' in window) {
+    // one callback can carry several records for the form (e.g. before and after the
+    // web font reflows the hero); only the newest one is the truth
     new IntersectionObserver(function (entries) {
-      callBar.classList.toggle('is-on', !entries[0].isIntersecting);
+      callBar.classList.toggle('is-on', !entries[entries.length - 1].isIntersecting);
     }).observe(stormForm);
   } else if (callBar) {
     callBar.classList.add('is-on');
